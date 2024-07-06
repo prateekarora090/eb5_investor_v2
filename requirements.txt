@@ -1,0 +1,16 @@
+base_agent==0.1.1
+beautifulsoup4==4.12.3
+crewai==0.36.0
+crewai_tools==0.4.7
+google_api_python_client==2.136.0
+google_auth_oauthlib==1.2.0
+langchain_google_genai==1.0.7
+langchain_openai==0.1.14
+numpy>=1.20.0  # Or a suitable minimum version based on Chromadb's requirements
+pdf2image==1.17.0
+protobuf==3.20.3
+PyPDF2==3.0.1
+pytesseract==0.3.10
+python-dotenv==1.0.1
+Requests==2.32.3
+sentence_transformers==3.0.1
