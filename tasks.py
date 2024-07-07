@@ -1,6 +1,6 @@
 from crewai import Task
 
-def create_financial_analyst_task(investment_name, investment_sector, agent, context, personal_info):
+def create_financial_analyst_task(investment_name, investment_sector, agent, personal_info):
     """Creates a Task object for the Financial Analyst."""
     return Task(
         description=f"""
@@ -42,11 +42,10 @@ def create_financial_analyst_task(investment_name, investment_sector, agent, con
                 - iii) exit strategy
                 - iv) job creation estimates
             """,
-        agent=agent,
-        context=context
+        agent=agent
     )
 
-def create_immigration_expert_task(investment_name, investment_sector, agent, context, personal_info):
+def create_immigration_expert_task(investment_name, investment_sector, agent, personal_info):
     """Creates a Task object for the Immigration Law Expert."""
     return Task(
         description=f"""
@@ -83,11 +82,10 @@ def create_immigration_expert_task(investment_name, investment_sector, agent, co
         2) Identify potential red flags or areas of concern that require further investigation.
         3) Provide clear recommendations or next steps for addressing any compliance issues.
         """,
-        agent=agent,
-        context=context
+        agent=agent
     )
 
-def create_risk_assessor_task(investment_name, investment_sector, agent, context, personal_info):
+def create_risk_assessor_task(investment_name, investment_sector, agent, personal_info):
     """Creates a Task object for the Risk Assessor."""
     return Task(
         description=f"""
@@ -124,11 +122,10 @@ def create_risk_assessor_task(investment_name, investment_sector, agent, context
         3)  Proposed mitigation strategies for the most significant risks.
         4) An overall risk rating for the investment (e.g., low, medium, high).
         """,
-        agent=agent,
-        context=context
+        agent=agent
     )
 
-def create_eb5_program_specialist_task(investment_name, investment_sector, agent, context, personal_info):
+def create_eb5_program_specialist_task(investment_name, investment_sector, agent, personal_info):
     """Creates a Task object for the EB-5 Program Specialist."""
     return Task(
         description=f"""
@@ -164,6 +161,5 @@ def create_eb5_program_specialist_task(investment_name, investment_sector, agent
         4)  Reputability and compliance of the regional center (if applicable).
         5)  Overall strengths, weaknesses, and areas requiring further attention.
         """,
-        agent=agent,
-        context=context
+        agent=agent
     )

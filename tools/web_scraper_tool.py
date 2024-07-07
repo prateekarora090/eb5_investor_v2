@@ -9,8 +9,8 @@ class WebScraperToolSchema(BaseModel):
     url: str = Field(..., description="URL of the website to scrape.")
 
 class WebScraperTool(BaseTool):
-    name = "Web Scraper"
-    description = "Scrapes text content from a given website URL."
+    name: str = "Web Scraper"
+    description: str = "Scrapes text content from a given website URL."
     args_schema: Type[BaseModel] = WebScraperToolSchema
 
     def _run(self, **kwargs: Any) -> Any:

@@ -89,20 +89,16 @@ def analyze_investments(investments, llm, report_name):
 
         # Create agent-specific tasks
         financial_analysis_task = create_financial_analyst_task(
-            investment_name, investment_sector, financial_analyst_agent, 
-            context, personal_info
+            investment_name, investment_sector, financial_analyst, personal_info
         )
         immigration_expert_analysis_task = create_immigration_expert_task(
-            investment_name, investment_sector, immigration_expert,
-            context, personal_info
+            investment_name, investment_sector, immigration_expert, personal_info
         )
-        risk_assessment_task = create_risk_assessor_task(
-            investment_name, investment_sector, risk_assessor,
-            context, personal_info
+        risk_assessment_analysis_task = create_risk_assessor_task(
+            investment_name, investment_sector, risk_assessor, personal_info
         )
-        eb5_program_compliance_task = create_eb5_program_specialist_task(
-            investment_name, investment_sector, eb5_specialist,
-            context, personal_info
+        eb5_program_compliance_analysis_task = create_eb5_program_specialist_task(
+            investment_name, investment_sector, eb5_specialist, personal_info
         )
 
         # Crew
@@ -116,8 +112,8 @@ def analyze_investments(investments, llm, report_name):
             tasks=[
                 financial_analysis_task,
                 immigration_expert_analysis_task,
-                risk_assessment_task,
-                eb5_program_compliance_task
+                risk_assessment_analysis_task,
+                eb5_program_compliance_analysis_task
                 ],
             verbose=2
         )

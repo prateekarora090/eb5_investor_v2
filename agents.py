@@ -1,14 +1,16 @@
+import os 
+
 from crewai import Agent
 from tools.web_search_tool import WebSearchTool
 from tools.web_scraper_tool import WebScraperTool 
-from crewai_tools import TextSearchTool 
+from crewai_tools import TXTSearchTool 
 
 #TODO: Implement a tool to give agents access to "historical data" -- this would be shared knowledge they all should have!!
 ## ^^ This can rely on certain websites they can visit or scrape, it can also be indexed / we can create embedding vectors for it as well.
 
 class Agents:
 
-    def __init__(self, llm, search_all_documents_tool, search_specific_document_tool):
+    def __init__(self, llm, search_all_documents_tool, search_specific_document_tool, knowledge_base_dir="knowledge_bases/"):
         self.llm = llm
         self.web_search_tool = WebSearchTool()
         self.web_scraper_tool = WebScraperTool()
@@ -17,8 +19,8 @@ class Agents:
         self.knowledge_base_dir = knowledge_base_dir
 
     def financial_analyst_agent(self):
-        knowledge_base = self._load_knowledge_base("financial_analysis.txt")
-        knowledge_search_tool = TextSearchTool(knowledge_base)
+        knowledge_base_path = os.path.join(self.knowledge_base_dir, "financial_analysis.txt")
+        knowledge_search_tool = TXTSearchTool(txt=knowledge_base_path)
         
         return Agent(
             name="Financial Analyst",
@@ -42,7 +44,7 @@ class Agents:
     
     def eb5_program_specialist_agent(self):
         knowledge_base_path = os.path.join(self.knowledge_base_dir, "eb5_program.txt")
-        knowledge_search_tool = TextSearchTool(knowledge_base_path)
+        knowledge_search_tool = TXTSearchTool(txt=knowledge_base_path)
 
         return Agent(
             name="EB-5 Program Specialist",
@@ -65,14 +67,14 @@ class Agents:
     
     def immigration_expert_agent(self):
         knowledge_base_path = os.path.join(self.knowledge_base_dir, "immigration_law.txt")
-        knowledge_search_tool = TextSearchTool(knowledge_base_path)
+        knowledge_search_tool = TXTSearchTool(txt=knowledge_base_path)
 
         return Agent(
             name="Immigration Law Expert",
             role="Immigration Law Expert",
             goal="""Evaluate the investment's compliance with US immigration laws, focusing
              on investor eligibility and source of funds.""",
-            backstory=backstory="""Experienced risk management professional, specializing in analyzing and mitigating risks in
+            backstory="""Experienced risk management professional, specializing in analyzing and mitigating risks in
              EB-5 investment projects. **Proven ability to identify financial, legal, market, and developer-related risks
               in EB-5 investments, drawing upon historical data and industry trends.**""",
             allow_delegation=False,
@@ -90,7 +92,7 @@ class Agents:
     
     def risk_assessor_agent(self):
         knowledge_base_path = os.path.join(self.knowledge_base_dir, "risk_assessment.txt")
-        knowledge_search_tool = TextSearchTool(knowledge_base_path)
+        knowledge_search_tool = TXTSearchTool(txt=knowledge_base_path)
 
         return Agent(
             name="Risk Assessor",
