@@ -1,0 +1,6 @@
+# Ignore the following directories
+db/
+outputs/
+secrets/
+venv/
+inputs/
