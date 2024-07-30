@@ -1,12 +1,13 @@
 from crewai import Task
 
-def create_financial_analyst_task(investment_name, investment_sector, agent, personal_info):
+def create_financial_analyst_task(investment_id, investment_name, investment_sector, agent, personal_info):
     """Creates a Task object for the Financial Analyst."""
     return Task(
         description=f"""
         You are a skilled financial analyst specializing in EB-5 investments. 
         Your task is to thoroughly analyze the financial aspects of the following EB-5 investment:
 
+        **Investment ID:** {investment_id}
         **Investment Name:** {investment_name}
         **Investment Sector:** {investment_sector}
         **Personal Information:** {personal_info}
@@ -45,13 +46,14 @@ def create_financial_analyst_task(investment_name, investment_sector, agent, per
         agent=agent
     )
 
-def create_immigration_expert_task(investment_name, investment_sector, agent, personal_info):
+def create_immigration_expert_task(investment_id, investment_name, investment_sector, agent, personal_info):
     """Creates a Task object for the Immigration Law Expert."""
     return Task(
         description=f"""
         You are an experienced immigration lawyer specializing in the EB-5 program.
         Your task is to evaluate the following EB-5 investment for compliance with immigration laws and program requirements:
 
+        **Investment ID:** {investment_id}
         **Investment Name:** {investment_name}
         **Investment Sector:** {investment_sector}
         **Personal Information:** {personal_info}
@@ -85,13 +87,14 @@ def create_immigration_expert_task(investment_name, investment_sector, agent, pe
         agent=agent
     )
 
-def create_risk_assessor_task(investment_name, investment_sector, agent, personal_info):
+def create_risk_assessor_task(investment_id, investment_name, investment_sector, agent, personal_info):
     """Creates a Task object for the Risk Assessor."""
     return Task(
         description=f"""
         You are a risk management expert specializing in EB-5 investments.
         Analyze the following investment for potential risks and red flags:
 
+        **Investment ID:** {investment_id}
         **Investment Name:** {investment_name}
         **Investment Sector:** {investment_sector}
         **Personal Information:** {personal_info}
@@ -125,13 +128,14 @@ def create_risk_assessor_task(investment_name, investment_sector, agent, persona
         agent=agent
     )
 
-def create_eb5_program_specialist_task(investment_name, investment_sector, agent, personal_info):
+def create_eb5_program_specialist_task(investment_id, investment_name, investment_sector, agent, personal_info):
     """Creates a Task object for the EB-5 Program Specialist."""
     return Task(
         description=f"""
         You are an expert in the EB-5 program, well-versed in its nuances and requirements.
         Your task is to evaluate the following investment's alignment with the program:
 
+        **Investment ID:** {investment_id}
         **Investment Name:** {investment_name}
         **Investment Sector:** {investment_sector}
         **Personal Information:** {personal_info}

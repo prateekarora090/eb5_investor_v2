@@ -1,34 +1,98 @@
 import os
 import json
+import logging
 import numpy as np
+import time
 from sentence_transformers import SentenceTransformer, util
 from crewai_tools import BaseTool
 from typing import Type, Any, ForwardRef
 from pydantic.v1 import BaseModel, Field, create_model, ConfigDict
 from sklearn.metrics.pairwise import cosine_similarity
+from transformers import pipeline
+from dotenv import load_dotenv
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
+
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from tqdm import tqdm
+import tiktoken
+
+# Logging config
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    filename='eb5_analysis.log'
+)
+logger = logging.getLogger(__name__)
+
+
+# Load environment variables
+load_dotenv('secrets/.env')
+
+# Set API keys
+os.environ['GOOGLE_API_KEY'] = os.getenv('GOOGLE_API_KEY')
+os.environ['OPENAI_API_KEY'] = os.getenv('OPEN_AI_API_KEY')
+os.environ['SERPER_API_KEY'] = os.getenv('SERPER_API_KEY')
+
+def get_llm(model_name="gemini-pro"):
+    if model_name == "gemini-pro":
+        return ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest")
+    elif model_name == "gpt-3.5-turbo":
+        return ChatOpenAI(model_name="gpt-3.5-turbo")
+    # Add more model options as needed
 
 class ContextAssembler(BaseModel):
+    """
+    Assembles and processes context for a given investment ID, 
+    providing various methods to search, summarize, and determine sector information.
+    """
     model_config = ConfigDict(from_attributes=True) # Allows 
     preprocessed_data_dir: str = Field(..., description="preprocessing directory, to assemble the context")
     model: Any = Field(..., description="model used to assemble the context")
+    llm: Any = Field(..., description="internal LLM used to summarize documents to assemble context")
     # class Config:
         # arbitrary_types_allowed = True
 
     def __init__(self, preprocessed_data_dir):
-        super().__init__(preprocessed_data_dir=preprocessed_data_dir, model=SentenceTransformer('all-MiniLM-L6-v2'))
+        super().__init__(preprocessed_data_dir=preprocessed_data_dir, model=SentenceTransformer('all-MiniLM-L6-v2'), llm=get_llm())
         self.preprocessed_data_dir = preprocessed_data_dir
         self.model = SentenceTransformer('all-MiniLM-L6-v2')
-
-    # @classmethod
-    # def __get_pydantic_core_schema__(cls, source_type: Any, handler: Any) -> dict[str, Any]:
-    #     """Defines the Pydantic schema for ContextAssembler."""
-    #     return handler(create_model('ContextAssemblerModel', preprocessed_data_dir=(str, ...)))
+        self.llm = get_llm()
     
-    def assemble_context(self, investment_id):
-        """ Most important function that compiles all documents and websites
-        per option to return a dictionary of all "context" for that option."""
+    def assemble_context(self, investment_id, include_full_chunks=False):
+        """Compiles all documents and websites per option to return a dictionary of all "context"
+           for that option. Note: This function is not very summary-like.
 
+        Args:
+            investment_id (str): The ID of the investment.
+            include_full_chunks (bool, optional): Whether to include the full chunks in the context. Defaults to False.
+
+        Returns:
+            dict: A dictionary containing the metadata, documents, and websites for the given investment.
+                Here's the sample structure:    
+                    {
+                        'metadata': dict,
+                        'documents': list[dict],
+                        'websites': list[dict]
+                    }
+                Further, each document and website is a dictionary with the following keys:
+                    'documents':
+                        {
+                            'file': str, # Name of the file
+                            'summary': str, # Summary of the document content
+                            'chunks': list[str] # List of chunks, if include_full_chunks is True
+                        }
+                    'websites':
+                        {
+                            'url': str, # URL of the website
+                            'summary': str, # Summary of the website content
+                            'chunks': list[str] # List of chunks, if include_full_chunks is True
+                        }
+        """
         investment_dir = os.path.join(self.preprocessed_data_dir, investment_id)
+        # DEBUG: logger.info(f"assemble_context() called on {investment_id}.")
         
         # Load metadata
         with open(os.path.join(investment_dir, 'metadata.json'), 'r') as f:
@@ -40,50 +104,221 @@ class ContextAssembler(BaseModel):
             'websites': []
         }
 
-        # Load document chunks
-        for file_name in metadata['folder_files']:
-            chunks_file = os.path.join(investment_dir, f"{os.path.splitext(file_name)[0]}_chunks.json")
-            if os.path.exists(chunks_file):
-                with open(chunks_file, 'r') as f:
-                    doc_chunks = json.load(f)
-                context['documents'].append(doc_chunks)
+        # For files:
+        # chunks_file = os.path.join(investment_dir, f"{os.path.splitext(file_name)[0]}_chunks.json")
+        # For websites:
+        # chunks_file = os.path.join(investment_dir, f"{website_file}_chunks.json")
 
-        # Load website chunks
+        # 1) Load file chunks and get summaries (and generate from chunks, if needed)
+        for file_name in metadata['folder_files']:
+            summary = self.get_or_create_summary(investment_dir, file_name)
+            doc_info = {
+                'file': file_name,
+                'summary': summary
+            }
+
+            # Still return the full chunks, if requested
+            if include_full_chunks:
+                chunks_file = os.path.join(investment_dir, f"{os.path.splitext(file_name)[0]}_chunks.json")
+                if os.path.exists(chunks_file):
+                    with open(chunks_file, 'r') as f:
+                        doc_info['chunks'] = json.load(f)['text_chunks']
+            context['documents'].append(doc_info)
+
+        # 2) Load website chunks and get summaries (and generate from chunks, if needed)
         for website in metadata['websites']:
             website_file = website.replace('https://', '').replace('http://', '').replace('/', '_')
-            chunks_file = os.path.join(investment_dir, f"{website_file}_chunks.json")
-            if os.path.exists(chunks_file):
-                with open(chunks_file, 'r') as f:
-                    website_chunks = json.load(f)
-                context['websites'].append(website_chunks)
+            summary = self.get_or_create_summary(investment_dir, website_file, is_website=True)
+            website_info = {
+                'url': website,
+                'summary': summary
+            }
 
+            # Still return the full chunks, if requested
+            if include_full_chunks:
+                chunks_file = os.path.join(investment_dir, f"{website_file}_chunks.json")
+                if os.path.exists(chunks_file):
+                    with open(chunks_file, 'r') as f:
+                        website_info['chunks'] = json.load(f)['chunks']
+            context['websites'].append(website_info)
+
+        logging.info(f"Results for assemble_context() on {investment_id}: {context}")
         return context
+
+        # DEBUG: logger.info(f"Results for assemble_context() on {investment_id} look like: {context}")
+        return context
+    
+    def get_or_create_summary(self, investment_dir, file_name, is_website=False):
+        """Returns summary of a document or website.
+        
+        This method retrieves the summary of a document or website. If the summary
+        is already cached, it is returned directly. Otherwise, the method generates
+        the summary using an LLM (Language Model) and caches it for future use.
+        
+        Args:
+            investment_dir (str): The directory where the investment files are stored.
+            file_name (str): The name of the file or website.
+            is_website (bool, optional): Indicates whether the input is a website or not.
+                Defaults to False.
+        
+        Returns:
+            str: The summary of the document or website.
+        
+        Raises:
+            FileNotFoundError: If the summary file or chunks file does not exist.
+        """
+        summary_file = os.path.join(investment_dir, f"{file_name}_summary.txt")
+        if is_website:
+            chunks_file = os.path.join(investment_dir, f"{file_name}_chunks.json")
+        else:
+            chunks_file = os.path.join(investment_dir, f"{os.path.splitext(file_name)[0]}_chunks.json")
+        
+        # If summary exists for the file or website, return it.
+        if os.path.exists(summary_file):
+            with open(summary_file, 'r') as f:
+                return f.read()
+        
+        # If not, 1) get the chunks
+        if os.path.exists(chunks_file):
+            with open(chunks_file, 'r') as f:
+                chunks = json.load(f)
+            
+            # 2) combine and summarize chunks
+            if is_website:
+                summary = self.summarize_existing_chunks(chunks['chunks'], file_name)
+            else:
+                summary = self.summarize_existing_chunks(chunks['text_chunks'], file_name)
+                
+            # 3) store the result!
+            with open(summary_file, 'w') as f:
+               f.write(summary)
+            
+            return summary
+
+        return "No content available for summarization."
+
+    def summarize_existing_chunks(self, chunks, file_name):
+        """Summarize the given chunks using an LLM (Language Model).
+
+        Args:
+            chunks (list): A list of chunks to be summarized.
+            file_name (str): The name of the file being summarized.
+
+        Returns:
+            str: The final summary of the chunks.
+
+        Raises:
+            None
+
+        Notes:
+            This method uses the BART (Bidirectional and Auto-Regressive Transformer) model for summarization.
+            It first summarizes each individual chunk and then combines the summaries into a single summary.
+
+        """
+        # [Research] Compared to other summarization models (pegasus, allenai), BART worked best!
+        summaries = []
+        summarizer = pipeline("summarization", model="facebook/bart-large-cnn", device=0)
+
+        for chunk in tqdm(chunks, desc="Processing chunks"):
+            summary = summarizer(chunk, max_length=600, min_length=200)[0]['summary_text']
+            summaries.append(summary)
+        
+        chunk_summaries = " ".join(summaries)
+        final_summary = summarizer(chunk_summaries, max_length=3000, min_length=200)[0]['summary_text']
+        return final_summary
+
+    # def summarize_with_gemini(self, text):
+    #     time.sleep(1)  # Add a 1-second delay between API calls
+    #     prompt = PromptTemplate(
+    #         input_variables=["text"],
+    #         template="Please provide a concise summary of the following text in about 200 words:\n\n{text}"
+    #     )
+    #     chain = LLMChain(llm=self.llm, prompt=prompt)
+    #     response = chain.run(text=text)
+    #     return response.strip()
 
     def semantic_search(self, context, query, top_k=5):
         """Searches the context assembled by assemble_context() by comparing
-        the embedding of the query against the embeddings of each document. """
+        the embedding of the query against the embeddings of each document.
+
+        Args:
+            context (dict): The context assembled by the `assemble_context()` method.
+                Ensure that this context contains 'chunks' for both documents and websites.
+            query (str): The query string to search for.
+            top_k (int, optional): The number of top results to return. Defaults to 5.
+
+        Returns:
+            list: A list of tuples containing the search results. Each tuple contains the file or URL,
+            the similarity score, and the corresponding chunk of text.
+
+        Raises:
+            KeyError: If the required keys 'documents' or 'websites' are not found in the context.
+
+        """
         query_embedding = self.model.encode(query, convert_to_tensor=True)
+        # DEBUG: logger.info(f"Semantic Search for for {query} on {context}")
         
         results = []
-        for doc in context['documents']:
-            for chunk in doc['text_chunks']:
+        # Search over documents
+        for doc in context.get('documents', []):
+            if (not doc.get('chunks', [])):
+                logging.error(f"Need chunks for semantic_search(), not found in context: {context}")
+            for chunk in doc.get('chunks', []):
                 chunk_embedding = self.model.encode(chunk, convert_to_tensor=True)
                 similarity = util.pytorch_cos_sim(query_embedding, chunk_embedding)
-                results.append((similarity.item(), chunk, doc['name']))
+                results.append((doc['file'], similarity.item(), chunk))
         
-        for website in context['websites']:
-            for chunk in website['chunks']:
+        # Search over websites (if they exist)
+        for website in context.get('websites', []):
+            if (not doc.get('websites', [])):
+                logging.error(f"Need chunks for semantic_search(), not found in context: {context}")
+            for chunk in website.get('chunks', []):
                 chunk_embedding = self.model.encode(chunk, convert_to_tensor=True)
                 similarity = util.pytorch_cos_sim(query_embedding, chunk_embedding)
-                results.append((similarity.item(), chunk, website['url']))
+                results.append((website['url'], similarity.item(), chunk))
         
         results.sort(reverse=True, key=lambda x: x[0])
+        # DEBUG: logger.info(f"Results for {query} on {context}: {results[:top_k]}")
         return results[:top_k]
+    
+    def search_specific_document(self, context, document_name, query, top_k=5):
+        """
+        Searches within a specific document.
+
+        Args:
+            context (dict): The context containing documents and websites.
+            document_name (str): The name of the document to search within.
+            query (str): The search query.
+            top_k (int, optional): The number of top search results to return. Defaults to 5.
+
+        Returns:
+            list: A list of search results.
+
+        """
+        # Extract just the filename without the extension for PDF files
+        if document_name.endswith(".pdf"):
+            document_name = os.path.splitext(document_name)[0]
+
+        # Search over documents
+        for doc in context['documents']:
+            if doc['file'].startswith(document_name):
+                print("Found document!!!")
+                return self.semantic_search({'documents': [doc]}, query, top_k)
+
+        # Search over websites
+        for website in context['websites']:
+            if website['url'] == document_name:
+                print("Found website!!!")
+                return self.semantic_search({'websites': [website]}, query, top_k)
+
+        print(f"ERROR: Could not find a document with inputted name {document_name}")
+        return []  # Return empty list if document not found
     
     def get_investment_overview(self, investment_id):
         """Provides a broad overview of the investment, including document
         descriptions. Helpful to provide to agents early on in the workflow."""
         
+        print(f"[context_assembler] Getting overview for {investment_id}...") 
         investment_dir = os.path.join(self.preprocessed_data_dir, investment_id)
 
         # Load metadata
@@ -98,60 +333,19 @@ class ContextAssembler(BaseModel):
             These can be searched using SearchAllDocuments or SearchSpecificDocument tools_\n"""
 
         for file_name in metadata['folder_files']:
-            chunks_file = os.path.join(investment_dir, f"{os.path.splitext(file_name)[0]}_chunks.json")
-            if os.path.exists(chunks_file):
-                with open(chunks_file, 'r') as f:
-                    doc_chunks = json.load(f)
-                summary = self.summarize_document(doc_chunks['text_chunks'])
-                overview += f"- **{file_name}:** {summary}\n"
+            summary = self.get_or_create_summary(investment_dir, file_name, is_website=False)
+            overview += f"- **{file_name}:** {summary}\n\n"
 
         for website in metadata['websites']:
             website_file = website.replace('https://', '').replace('http://', '').replace('/', '_')
-            chunks_file = os.path.join(investment_dir, f"{website_file}_chunks.json")
-            if os.path.exists(chunks_file):
-                with open(chunks_file, 'r') as f:
-                    website_chunks = json.load(f)
-                summary = self.summarize_document(website_chunks['chunks'])
-                overview += f"- **{website}:** {summary}\n"
+            summary = self.get_or_create_summary(investment_dir, website_file, is_website=True)
+            overview += f"- **{website}:** {summary}\n\n"
 
         investment_sector = self.determine_sector(overview)
         overview += f"\n**Investment Sector:** {investment_sector}"
 
+        logger.info(f"Overview for {investment_id} is {overview}")
         return overview
-
-    # def summarize_document(self, chunks):
-    #     """Summarizes a document by averaging its chunk embeddings."""
-    #     embeddings = [self.model.encode(chunk) for chunk in chunks]
-    #     avg_embedding = np.mean(embeddings, axis=0)
-    #     summary = self.model.decode(avg_embedding)
-    #     return summary
-
-    def summarize_document(self, chunks, max_summary_length=200):
-        """Summarizes a document by selecting the most representative chunks."""
-        if not chunks:
-            return "No content available for summarization."
-
-        # Encode all chunks
-        embeddings = self.model.encode(chunks)
-
-        # Calculate the centroid (mean) of all embeddings
-        centroid = np.mean(embeddings, axis=0)
-
-        # Calculate cosine similarity between each chunk and the centroid
-        similarities = cosine_similarity([centroid], embeddings)[0]
-
-        # Sort chunks by similarity to the centroid
-        sorted_chunks = [chunk for _, chunk in sorted(zip(similarities, chunks), reverse=True)]
-
-        # Select top chunks until we reach the max summary length
-        summary = ""
-        for chunk in sorted_chunks:
-            if len(summary) + len(chunk) <= max_summary_length:
-                summary += chunk + " "
-            else:
-                break
-
-        return summary.strip()
 
     def determine_sector(self, overview):
         """Determines the investment sector based on keywords and phrases."""
@@ -177,7 +371,7 @@ class ContextAssembler(BaseModel):
 ### Exposed Tool #1: Searching across all investment documents!
 class SearchAllDocumentsSchema(BaseModel):
     """Input for SearchAllDocumentsTool."""
-    investment_id: str = Field(..., description="ID of the investment to search within.")
+    investment_id: str = Field(..., description="ID of the investment to search within. NOTE = This is NOT the investment name, it's the ID!")
     query: str = Field(..., description="Search query.")
     top_k: int = Field(5, description="Number of top results to return.")
 
@@ -196,14 +390,21 @@ class SearchAllDocumentsTool(BaseTool):
         query = kwargs.get("query")
         top_k = kwargs.get("top_k", 5)  # Default to 5 if not specified
 
-        investment_context = self.context_assembler.assemble_context(investment_id)
-        return self.context_assembler._semantic_search(investment_context, query, top_k)
+        # print(f"~~~~ [Tool Use] SearchAllDocs for {investment_id}: {query} and {top_k} ~~~~")
+        investment_context = self.context_assembler.assemble_context(
+            investment_id,
+            include_full_chunks=True # TODO: Not sure if we really need this / even support this mode for assemble_context()
+        )
+        result = self.context_assembler.semantic_search(investment_context, query, top_k)
+        # print(f"~~~~ [Tool Use] Output for SearchAllDocs for {investment_id}: {query} and {top_k} ~~~~")
+        # print(f"~~~~ [Tool Use] Results: {result} ~~~~")
+        return result
 
 
 ### Exposed Tool #2: Searching a specific investment documetn!
 class SearchSpecificDocumentSchema(BaseModel):
     """Input for SearchSpecificDocumentTool."""
-    investment_id: str = Field(..., description="ID of the investment to search within.")
+    investment_id: str = Field(..., description="ID of the investment to search within.  NOTE = This is NOT the investment name, it's the ID!")
     document_name: str = Field(..., description="Name of the document to search.")
     query: str = Field(..., description="Search query.")
     top_k: int = Field(5, description="Number of top results to return.")
@@ -213,9 +414,6 @@ class SearchSpecificDocumentTool(BaseTool):
     description: str = "Performs a semantic search within a specific document."
     args_schema: Type[BaseModel] = SearchSpecificDocumentSchema
     context_assembler: ContextAssembler = Field(..., description="context assembler", init_var=True)
-
-    class Config:
-        arbitrary_types_allowed = True  # Allow non-Pydantic types
 
     def __init__(self, context_assembler):
         super().__init__()
@@ -263,8 +461,6 @@ if __name__ == "__main__":
     print(f"\nSearch Specific Document Results (Document: '{document_name}', Query: '{query}'):\n")
     for similarity, chunk, source, chunk_index in search_specific_results:
         print(f"- Similarity: {similarity:.4f}, Source: {source}, Chunk Index: {chunk_index}, Text: {chunk[:100]}...")
-    
-
     
     # Example semantic search
     query = "EB-5 visa requirements"
