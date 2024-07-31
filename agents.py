@@ -5,6 +5,8 @@ from tools.web_search_tool import WebSearchTool
 from tools.web_scraper_tool import WebScraperTool 
 from crewai_tools import TXTSearchTool 
 
+import config
+
 #TODO: Implement a tool to give agents access to "historical data" -- this would be shared knowledge they all should have!!
 ## ^^ This can rely on certain websites they can visit or scrape, it can also be indexed / we can create embedding vectors for it as well.
 
@@ -20,7 +22,7 @@ class Agents:
 
     def financial_analyst_agent(self):
         knowledge_base_path = os.path.join(self.knowledge_base_dir, "financial_analysis.txt")
-        knowledge_search_tool = TXTSearchTool(txt=knowledge_base_path)
+        knowledge_search_tool = TXTSearchTool(txt=config.KB_PATH_FINANCIAL_ANALYST)
         
         return Agent(
             name="Financial Analyst",
@@ -44,7 +46,7 @@ class Agents:
     
     def eb5_program_specialist_agent(self):
         knowledge_base_path = os.path.join(self.knowledge_base_dir, "eb5_program.txt")
-        knowledge_search_tool = TXTSearchTool(txt=knowledge_base_path)
+        knowledge_search_tool = TXTSearchTool(txt=config.KB_PATH_EB5_PROGRAM)
 
         return Agent(
             name="EB-5 Program Specialist",
@@ -67,7 +69,7 @@ class Agents:
     
     def immigration_expert_agent(self):
         knowledge_base_path = os.path.join(self.knowledge_base_dir, "immigration_law.txt")
-        knowledge_search_tool = TXTSearchTool(txt=knowledge_base_path)
+        knowledge_search_tool = TXTSearchTool(txt=config.KB_PATH_IMMIGRATION_LAW)
 
         return Agent(
             name="Immigration Law Expert",
@@ -92,7 +94,7 @@ class Agents:
     
     def risk_assessor_agent(self):
         knowledge_base_path = os.path.join(self.knowledge_base_dir, "risk_assessment.txt")
-        knowledge_search_tool = TXTSearchTool(txt=knowledge_base_path)
+        knowledge_search_tool = TXTSearchTool(txt=config.KB_PATH_RISK_ASSESSMENT)
 
         return Agent(
             name="Risk Assessor",

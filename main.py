@@ -44,16 +44,16 @@ os.environ['SERPER_API_KEY'] = os.getenv('SERPER_API_KEY')
 
 # TODO: Ensure config's values are honored
 
-def get_llm(model_name="local-llama"):
-    if model_name == "gemini-pro":
-        return ChatGoogleGenerativeAI(model="gemini-pro")
-    elif model_name == "gpt-3.5-turbo":
+def get_llm(model_enum="local-llama"):
+    if model_enum == "gemini-pro":
+        return ChatGoogleGenerativeAI(model_name="gemini-pro")
+    elif model_enum == "gpt-3.5-turbo":
         return ChatOpenAI(model_name="gpt-3.5-turbo")
-    elif model_name == "local--llama":
-        return OllamaWrapper(model_name="llama3/8b-instruct-q8_0")
+    elif model_enum == "local--llama":
+        return OllamaWrapper(model_name="llama3:8b-instruct-q8_0")
     # Add more model options as needed
     else:
-        raise ValueError(f"Invalid model name: {model_name}")
+        raise ValueError(f"Invalid model name: {model_enum}")
 
 def analyze_investments(investments, llm, report_name):
     # Processed input
@@ -82,9 +82,9 @@ def analyze_investments(investments, llm, report_name):
     for investment in investments:
         # Grab an assembled context taking into acccount all of the provided input files
         context = assembler.assemble_context(investment['id'])
-        investment_sector = assembler.determine_sector(assembler.get_investment_overview(investment['id']))
         investment_name = investment['name']
         investment_id = investment['id']
+        investment_overview = assembler.get_investment_overview(investment['id'])
 
         # Create investment directory within the report directory
         investment_dir = os.path.join(report_dir, investment['name'])
@@ -92,24 +92,35 @@ def analyze_investments(investments, llm, report_name):
 
         # Check for existing analysis results
         analysis_results_file = os.path.join(investment_dir, "analysis_results.json")
+        log_file_path = os.path.join(investment_dir, "log.txt")
         if os.path.exists(analysis_results_file):
             print(f"Loading existing analysis for {investment['name']} from {analysis_results_file}")
             with open(analysis_results_file, 'r') as f:
                 results.append(json.load(f))
             continue  # Skip to the next investment
 
+        # Task specific output files
+        financial_analysis_output_file = os.path.join(investment_dir, "financial_analysis_results.json")
+        immigration_expert_output_file = os.path.join(investment_dir, "immigration_expert_results.json")
+        risk_assessment_output_file = os.path.join(investment_dir, "risk_assessment_results.json")
+        eb5_program_compliance_output_file = os.path.join(investment_dir, "eb5_program_compliance_results.json")
+
         # Create agent-specific tasks
         financial_analysis_task = create_financial_analyst_task(
-            investment_id, investment_name, investment_sector, financial_analyst, personal_info
+            investment_id, investment_name, investment_overview, financial_analyst, 
+            personal_info, financial_analysis_output_file
         )
         immigration_expert_analysis_task = create_immigration_expert_task(
-            investment_id, investment_name, investment_sector, immigration_expert, personal_info
+            investment_id, investment_name, investment_overview, immigration_expert,
+            personal_info, immigration_expert_output_file
         )
         risk_assessment_analysis_task = create_risk_assessor_task(
-            investment_id, investment_name, investment_sector, risk_assessor, personal_info
+            investment_id, investment_name, investment_overview, risk_assessor,
+            personal_info, risk_assessment_output_file
         )
         eb5_program_compliance_analysis_task = create_eb5_program_specialist_task(
-            investment_id, investment_name, investment_sector, eb5_specialist, personal_info
+            investment_id, investment_name, investment_overview, eb5_specialist,
+            personal_info, eb5_program_compliance_output_file
         )
 
         # Crew
@@ -126,7 +137,11 @@ def analyze_investments(investments, llm, report_name):
                 risk_assessment_analysis_task,
                 eb5_program_compliance_analysis_task
                 ],
-            verbose=2
+            verbose=True,
+            output_log_file=log_file_path, # output to log file
+            full_output=True, # didn't work for me, but each task has output_file too.
+            process=Process.sequential,
+            memory=True,
         )
 
         # Run the crew
@@ -135,14 +150,29 @@ def analyze_investments(investments, llm, report_name):
         # Save the analysis results
         print(f"Saving analysis for {investment['name']} to {analysis_results_file}")
         with open(analysis_results_file, 'w') as f:
-            json.dump(result, f, indent=4)
+            with open(analysis_results_file, 'w') as f:
+                result_dict = {
+                    "raw": result.get('raw', ''),
+                    "json_dict": result.get('json_dict', {}),
+                    "tasks_output": [
+                        {
+                            "task_id": task.get('task_id', ''),
+                            "output": task.get('output', ''),
+                            "agent_name": task.get('agent_name', '')
+                        } for task in result.get('tasks_output', [])
+                    ],
+                    "token_usage": result.get('token_usage', {})
+                }
+                json.dump(result_dict, f, indent=4)
+                print(f"{investment['name']} analysis completed! \n")
+                print(f"Results: {result_dict}")
 
         results.append(result)
     print("Completed!")
 
 def main():
     parser = argparse.ArgumentParser(description="EB-5 Investment Analysis")
-    parser.add_argument("action", choices=["preprocess", "analyze", "testing", "abstract"], help="Action to perform")
+    parser.add_argument("action", choices=["preprocess", "testing", "abstract", "analyze"], help="Action to perform")
     parser.add_argument("--report_name", help="Name of the report (used for output directory)", default="eb5_analysis")
     args = parser.parse_args()
 
@@ -189,7 +219,7 @@ def main():
             all_investments = json.load(f)
         
         # Only consider the first option for initial testing
-        investments_to_analyze = all_investments[:1]
+        investments_to_analyze = all_investments
         print(f"Analyzing {len(investments_to_analyze)} investment options")
 
         # Wrap main functionality in try-except
